@@ -55,7 +55,7 @@ except Exception as e:
 # ==========================================
 # 1.1 ฟังก์ชันดึงข้อมูล (Caching Data)
 # ==========================================
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=10)
 def fetch_tutor_data():
     return worksheet.get_all_records()
 
@@ -280,4 +280,5 @@ elif menu == "สมัครเป็นติวเตอร์":
                         st.rerun() 
                     except Exception as e:
                         st.error(f"เกิดข้อผิดพลาดในการส่งข้อมูล: {e}")
+
 
