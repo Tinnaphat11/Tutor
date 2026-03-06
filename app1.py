@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import gspread
 import smtplib
-import time # เพิ่มไลบรารีสำหรับการหน่วงเวลา (Delay Execution)
+import time 
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from streamlit_option_menu import option_menu
@@ -126,7 +126,6 @@ with st.sidebar:
 if menu == "ค้นหาติวเตอร์":
     st.title("📚 ค้นหาติวเตอร์ที่ใช่สำหรับคุณ")
     
-    # โหลดข้อมูลแบบ Cached
     tutor_data = fetch_tutor_data()
     review_data = fetch_review_data()
     
@@ -174,12 +173,12 @@ if menu == "ค้นหาติวเตอร์":
                         
                         col_pic, col_info, col_review = st.columns([1.5, 3, 2])
                         with col_pic:
-                            # ตรวจสอบและทำความสะอาด String ข้อมูลภาพ
                             profile_pic = str(row.get('Profile_Pic', '')).strip()
                             if profile_pic.startswith('http') and len(profile_pic) > 10:
-                                st.image(profile_pic, use_container_width=True)
+                                # ใช้ HTML img tag พร้อม referrerpolicy
+                                st.markdown(f'<img src="{profile_pic}" style="width:100%; border-radius:8px;" referrerpolicy="no-referrer">', unsafe_allow_html=True)
                             else:
-                                st.image("https://via.placeholder.com/150?text=No+Profile", use_container_width=True)
+                                st.markdown('<img src="https://via.placeholder.com/150?text=No+Profile" style="width:100%; border-radius:8px;">', unsafe_allow_html=True)
                                 
                         with col_info:
                             st.write(f"**📚 วิชาที่สอน:** {row['Subject']}")
@@ -188,11 +187,11 @@ if menu == "ค้นหาติวเตอร์":
                             st.info(row['Portfolio'])
                             
                         with col_review:
-                            # ตรวจสอบและทำความสะอาด String ข้อมูลภาพ
                             result_pic = str(row.get('Result_Pic', '')).strip()
                             if result_pic.startswith('http') and len(result_pic) > 10:
                                 st.write("**✨ ผลงาน:**")
-                                st.image(result_pic, use_container_width=True)
+                                # ใช้ HTML img tag พร้อม referrerpolicy
+                                st.markdown(f'<img src="{result_pic}" style="width:100%; border-radius:8px;" referrerpolicy="no-referrer">', unsafe_allow_html=True)
                         
                         st.link_button(f"💬 สนใจเรียน ติดต่อ (LINE: {row['Line_ID']})", f"https://line.me/ti/p/~{row['Line_ID']}", use_container_width=True)
                         
@@ -222,9 +221,9 @@ if menu == "ค้นหาติวเตอร์":
                                         ws_reviews = sh.worksheet("Reviews")
                                         ws_reviews.append_row([row['Line_ID'], rating, comment])
                                         st.success("ขอบคุณสำหรับรีวิวครับ! ระบบกำลังปรับปรุงข้อมูล...")
-                                        st.cache_data.clear() # เคลียร์แคชเพื่อให้ระบบดึงข้อมูลใหม่
-                                        time.sleep(1) # หน่วงเวลาแสดงผลข้อความ
-                                        st.rerun() # บังคับ Render UI ใหม่
+                                        st.cache_data.clear() 
+                                        time.sleep(1) 
+                                        st.rerun() 
                                     except Exception as e:
                                         st.error(f"เกิดข้อผิดพลาดในการบันทึกรีวิว: {e}")
             else:
@@ -276,8 +275,8 @@ elif menu == "สมัครเป็นติวเตอร์":
                         send_admin_notification(tutor_name, tutor_subject, tutor_line_id)
                         
                         st.success("🎉 ส่งใบสมัครสำเร็จ! ข้อมูลของคุณอยู่ในระบบแล้ว กรุณาส่งหลักฐานและรูปภาพให้ Admin")
-                        st.cache_data.clear() # เคลียร์แคชเพื่อให้ระบบดึงข้อมูลใหม่
-                        time.sleep(2) # หน่วงเวลาแสดงผลข้อความ
-                        st.rerun() # บังคับ Render UI ใหม่
+                        st.cache_data.clear() 
+                        time.sleep(2) 
+                        st.rerun() 
                     except Exception as e:
                         st.error(f"เกิดข้อผิดพลาดในการส่งข้อมูล: {e}")
