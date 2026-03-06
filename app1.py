@@ -2,33 +2,30 @@ import streamlit as st
 import pandas as pd
 import gspread
 import smtplib
+import time # เพิ่มไลบรารีสำหรับการหน่วงเวลา (Delay Execution)
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from streamlit_option_menu import option_menu # เรียกใช้เมนูแบบใหม่
+from streamlit_option_menu import option_menu
 
 # ==========================================
 # ตั้งค่าหน้าจอ (ต้องอยู่บนสุดเสมอ)
 # ==========================================
 st.set_page_config(page_title="TUTOR FINDER", layout="wide", page_icon="🎓")
-# ==========================================
-# แทรก CSS เพื่อตกแต่งปุ่มเปิด/ปิด Sidebar ให้มองเห็นง่ายขึ้น
+
 st.markdown("""
     <style>
-    /* ตกแต่งปุ่มตอนที่เมนูถูกซ่อน (ลูกศร >>) */
     [data-testid="collapsedControl"] {
         color: #FFFFFF !important;
-        background-color: #0078D7 !important; /* สีพื้นหลังปุ่มน้ำเงิน */
+        background-color: #0078D7 !important; 
         border-radius: 20px !important;
         padding: 5px 15px !important;
         border: 1px solid #005A9E !important;
         box-shadow: 0 4px 6px rgba(0,0,0,0.3) !important;
         transition: 0.3s;
     }
-    /* ทำให้ปุ่มสว่างขึ้นตอนเอาเมาส์ไปชี้ */
     [data-testid="collapsedControl"]:hover {
         background-color: #005A9E !important;
     }
-    /* เติมคำว่า 'เปิดเมนู' ต่อท้ายลูกศร */
     [data-testid="collapsedControl"]::after {
         content: " เปิดเมนู";
         font-family: sans-serif;
@@ -38,47 +35,64 @@ st.markdown("""
     }
     </style>
 """, unsafe_allow_html=True)
+
 # ==========================================
-# 1. การเชื่อมต่อ Google Sheets
+# 1. การเชื่อมต่อ Google Sheets (Caching Resource)
 # ==========================================
-try:
-    # โหลดข้อมูล Credential จาก Streamlit Secrets
+@st.cache_resource
+def init_connection():
     credentials_dict = dict(st.secrets["gcp_service_account"])
-    gc = gspread.service_account_from_dict(credentials_dict)
+    return gspread.service_account_from_dict(credentials_dict)
+
+try:
+    gc = init_connection()
     sh = gc.open("Tutor_DB")
     worksheet = sh.sheet1
 except Exception as e:
     st.error(f"เกิดข้อผิดพลาดในการเชื่อมต่อ Google Sheets: {e}")
-    st.stop() # หยุดการทำงานถ้าระบบฐานข้อมูลเชื่อมไม่ได้
+    st.stop()
+
+# ==========================================
+# 1.1 ฟังก์ชันดึงข้อมูล (Caching Data)
+# ==========================================
+@st.cache_data(ttl=60)
+def fetch_tutor_data():
+    return worksheet.get_all_records()
+
+@st.cache_data(ttl=60)
+def fetch_review_data():
+    try:
+        ws_reviews = sh.worksheet("Reviews")
+        return ws_reviews.get_all_records()
+    except:
+        return []
 
 # ==========================================
 # 2. ฟังก์ชันส่ง Email แจ้ง Admin
 # ==========================================
 def send_admin_notification(name, subject, line_id):
-    # ⚠️ อย่าลืมใส่ Email และ App Password ของคุณ
-
-    SENDER_EMAIL = st.secrets["email"]["sender"]
-    SENDER_APP_PASSWORD = st.secrets["email"]["password"]
-    ADMIN_EMAIL = st.secrets["email"]["admin"]
-
-    msg = MIMEMultipart()
-    msg['From'] = SENDER_EMAIL
-    msg['To'] = ADMIN_EMAIL
-    msg['Subject'] = f"🚀 [Tutor MVP] มีติวเตอร์สมัครใหม่: คุณ {name}"
-
-    body = f"""
-    มีการสมัครติวเตอร์ใหม่เข้ามาในระบบ (รออนุมัติ)
-    
-    ข้อมูลเบื้องต้น:
-    - ชื่อ: {name}
-    - วิชาที่สอน: {subject}
-    - LINE ID: {line_id}
-
-    📌 กรุณาตรวจสอบหลักฐาน และเปลี่ยน Status เป็น "Approved" ใน Google Sheets
-    """
-    msg.attach(MIMEText(body, 'plain'))
-
     try:
+        SENDER_EMAIL = st.secrets["email"]["sender"]
+        SENDER_APP_PASSWORD = st.secrets["email"]["password"]
+        ADMIN_EMAIL = st.secrets["email"]["admin"]
+
+        msg = MIMEMultipart()
+        msg['From'] = SENDER_EMAIL
+        msg['To'] = ADMIN_EMAIL
+        msg['Subject'] = f"🚀 [Tutor MVP] มีติวเตอร์สมัครใหม่: คุณ {name}"
+
+        body = f"""
+        มีการสมัครติวเตอร์ใหม่เข้ามาในระบบ (รออนุมัติ)
+        
+        ข้อมูลเบื้องต้น:
+        - ชื่อ: {name}
+        - วิชาที่สอน: {subject}
+        - LINE ID: {line_id}
+
+        📌 กรุณาตรวจสอบหลักฐาน และเปลี่ยน Status เป็น "Approved" ใน Google Sheets
+        """
+        msg.attach(MIMEText(body, 'plain'))
+
         server = smtplib.SMTP('smtp.gmail.com', 587)
         server.starttls()
         server.login(SENDER_EMAIL, SENDER_APP_PASSWORD)
@@ -92,15 +106,13 @@ def send_admin_notification(name, subject, line_id):
 # ==========================================
 # 3. โครงสร้าง UI และ Logic หน้าเว็บ
 # ==========================================
-
-# --- เมนูด้านข้าง (Sidebar) แบบใหม่ ---
 with st.sidebar:
     st.markdown("<h2 style='text-align: center;'>🎓 Tutor MVP</h2>", unsafe_allow_html=True)
     
     menu = option_menu(
         menu_title=None, 
         options=["ค้นหาติวเตอร์", "สมัครเป็นติวเตอร์"], 
-        icons=["search", "person-lines-fill"], # เปลี่ยนไอคอนได้ที่เว็บ Bootstrap Icons
+        icons=["search", "person-lines-fill"],
         default_index=0,
         styles={
             "container": {"padding": "0!important", "background-color": "transparent"},
@@ -114,26 +126,18 @@ with st.sidebar:
 if menu == "ค้นหาติวเตอร์":
     st.title("📚 ค้นหาติวเตอร์ที่ใช่สำหรับคุณ")
     
-    # โหลดข้อมูลทั้ง 2 ชีต (รายชื่อ และ รีวิว)
-    try:
-        worksheet_reviews = sh.worksheet("Reviews")
-        review_data = worksheet_reviews.get_all_records()
-    except:
-        st.warning("⚠️ กรุณาสร้างแผ่นงาน (Sheet) ชื่อ 'Reviews' ใน Google Sheets เพื่อเปิดใช้ระบบรีวิว")
-        review_data = []
-
-    tutor_data = worksheet.get_all_records()
+    # โหลดข้อมูลแบบ Cached
+    tutor_data = fetch_tutor_data()
+    review_data = fetch_review_data()
     
     if len(tutor_data) > 0:
         df_tutors = pd.DataFrame(tutor_data)
         df_reviews = pd.DataFrame(review_data) if len(review_data) > 0 else pd.DataFrame(columns=["Tutor_Line_ID", "Rating", "Comment"])
         
-        # กรองเฉพาะแถวที่ Status เป็น "Approved"
         if "Status" in df_tutors.columns:
             df_approved = df_tutors[df_tutors["Status"] == "Approved"].copy()
             
             if not df_approved.empty:
-                # คำนวณคะแนนเฉลี่ย
                 if not df_reviews.empty:
                     avg_ratings = df_reviews.groupby('Tutor_Line_ID').agg(
                         Avg_Rating=('Rating', 'mean'),
@@ -147,10 +151,8 @@ if menu == "ค้นหาติวเตอร์":
                     df_approved['Avg_Rating'] = 0.0
                     df_approved['Review_Count'] = 0
                 
-                # จัดเรียงลำดับตามคะแนน
                 df_approved = df_approved.sort_values(by=['Avg_Rating', 'Review_Count'], ascending=[False, False])
                 
-                # ตัวเลือกค้นหาวิชา
                 subjects_list = df_approved["Subject"].unique().tolist()
                 selected_subject = st.selectbox("เลือกวิชาที่ต้องการ:", ["ดูทั้งหมด"] + subjects_list)
                 
@@ -161,10 +163,8 @@ if menu == "ค้นหาติวเตอร์":
                 
                 st.divider()
                 
-                # แสดงผลการ์ดรายบุคคล
                 for index, row in df_display.iterrows():
                     with st.container(border=True):
-                        # ส่วนหัว: ชื่อ และ ดาว
                         col_name, col_star = st.columns([3, 1])
                         with col_name:
                             st.subheader(f"🧑‍🏫 {row['Name']}")
@@ -172,11 +172,12 @@ if menu == "ค้นหาติวเตอร์":
                             st.markdown(f"### ⭐ {row['Avg_Rating']:.1f}/5")
                             st.caption(f"({int(row['Review_Count'])} รีวิว)")
                         
-                        # ส่วนข้อมูลหลัก: รูป ข้อมูล ผลงาน
                         col_pic, col_info, col_review = st.columns([1.5, 3, 2])
                         with col_pic:
-                            if 'Profile_Pic' in row and pd.notna(row['Profile_Pic']) and str(row['Profile_Pic']).startswith('http'):
-                                st.image(str(row['Profile_Pic']), use_container_width=True)
+                            # ตรวจสอบและทำความสะอาด String ข้อมูลภาพ
+                            profile_pic = str(row.get('Profile_Pic', '')).strip()
+                            if profile_pic.startswith('http') and len(profile_pic) > 10:
+                                st.image(profile_pic, use_container_width=True)
                             else:
                                 st.image("https://via.placeholder.com/150?text=No+Profile", use_container_width=True)
                                 
@@ -187,16 +188,15 @@ if menu == "ค้นหาติวเตอร์":
                             st.info(row['Portfolio'])
                             
                         with col_review:
-                            if 'Result_Pic' in row and pd.notna(row['Result_Pic']) and str(row['Result_Pic']).startswith('http'):
+                            # ตรวจสอบและทำความสะอาด String ข้อมูลภาพ
+                            result_pic = str(row.get('Result_Pic', '')).strip()
+                            if result_pic.startswith('http') and len(result_pic) > 10:
                                 st.write("**✨ ผลงาน:**")
-                                st.image(str(row['Result_Pic']), use_container_width=True)
+                                st.image(result_pic, use_container_width=True)
                         
-                        # ปุ่มติดต่อ LINE
                         st.link_button(f"💬 สนใจเรียน ติดต่อ (LINE: {row['Line_ID']})", f"https://line.me/ti/p/~{row['Line_ID']}", use_container_width=True)
                         
-                        # ส่วนอ่านรีวิวและฟอร์มส่งรีวิว (Expander)
                         with st.expander(f"💬 อ่านรีวิว / ให้คะแนนคุณ {row['Name']}"):
-                            
                             st.markdown("#### รีวิวจากนักเรียน")
                             if not df_reviews.empty:
                                 tutor_reviews = df_reviews[df_reviews['Tutor_Line_ID'] == row['Line_ID']]
@@ -218,8 +218,15 @@ if menu == "ค้นหาติวเตอร์":
                                 submit_review = st.form_submit_button("ส่งรีวิว ⭐")
                                 
                                 if submit_review:
-                                    worksheet_reviews.append_row([row['Line_ID'], rating, comment])
-                                    st.success("ขอบคุณสำหรับรีวิวครับ! (ระบบบันทึกแล้ว กรุณากด F5 หรือรีเฟรชหน้าเว็บเพื่อดูรีวิวของคุณ)")
+                                    try:
+                                        ws_reviews = sh.worksheet("Reviews")
+                                        ws_reviews.append_row([row['Line_ID'], rating, comment])
+                                        st.success("ขอบคุณสำหรับรีวิวครับ! ระบบกำลังปรับปรุงข้อมูล...")
+                                        st.cache_data.clear() # เคลียร์แคชเพื่อให้ระบบดึงข้อมูลใหม่
+                                        time.sleep(1) # หน่วงเวลาแสดงผลข้อความ
+                                        st.rerun() # บังคับ Render UI ใหม่
+                                    except Exception as e:
+                                        st.error(f"เกิดข้อผิดพลาดในการบันทึกรีวิว: {e}")
             else:
                 st.warning("ยังไม่มีติวเตอร์ที่ผ่านการอนุมัติในระบบขณะนี้")
         else:
@@ -259,12 +266,18 @@ elif menu == "สมัครเป็นติวเตอร์":
                         tutor_university, 
                         tutor_portfolio, 
                         tutor_line_id, 
-                        "Pending", # Status
-                        "",        # Profile_Pic 
-                        ""         # Result_Pic 
+                        "Pending", 
+                        "",        
+                        ""         
                     ]
                     
-                    worksheet.append_row(new_row)
-                    send_admin_notification(tutor_name, tutor_subject, tutor_line_id)
-                    
-                    st.success("🎉 ส่งใบสมัครสำเร็จ! ข้อมูลของคุณอยู่ในระบบแล้ว กรุณาส่งหลักฐานและรูปภาพให้ Admin เพื่อดำเนินการอนุมัติต่อไปครับ")
+                    try:
+                        worksheet.append_row(new_row)
+                        send_admin_notification(tutor_name, tutor_subject, tutor_line_id)
+                        
+                        st.success("🎉 ส่งใบสมัครสำเร็จ! ข้อมูลของคุณอยู่ในระบบแล้ว กรุณาส่งหลักฐานและรูปภาพให้ Admin")
+                        st.cache_data.clear() # เคลียร์แคชเพื่อให้ระบบดึงข้อมูลใหม่
+                        time.sleep(2) # หน่วงเวลาแสดงผลข้อความ
+                        st.rerun() # บังคับ Render UI ใหม่
+                    except Exception as e:
+                        st.error(f"เกิดข้อผิดพลาดในการส่งข้อมูล: {e}")
